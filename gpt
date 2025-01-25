@@ -1,0 +1,75 @@
+import time
+import sys
+from contextlib import contextmanager
+import openai
+from yaspin import yaspin
+from yaspin.spinners import Spinners
+
+
+def create_chatgpt_client(token, spinner_suffix=""):
+    """
+    Creates a new ChatGPT client.
+    :param token: OpenAI API token.
+    :param spinner_suffix: Suffix text to display in the spinner.
+    :return: A dictionary containing the client and model information.
+    """
+    openai.api_key = token
+    return {
+        "client": openai,
+        "model": "gpt-3.5-turbo",
+        "spinner_suffix": spinner_suffix,
+    }
+
+
+@contextmanager
+def spinner_with_suffix(suffix):
+    """
+    Context manager for displaying a spinner with a suffix.
+    :param suffix: The text to display after the spinner.
+    """
+    spinner = yaspin(Spinners.line, text=suffix)
+    spinner.start()
+    try:
+        yield
+    finally:
+        spinner.stop()
+
+
+def create_completion(client, prompt, writer=sys.stdout):
+    """
+    Creates a ChatGPT completion with streaming output.
+    :param client: The client dictionary returned by create_chatgpt_client.
+    :param prompt: The prompt to send to ChatGPT.
+    :param writer: The output stream where the response will be written.
+    :return: None
+    """
+    with spinner_with_suffix(client["spinner_suffix"]):
+        try:
+            response = openai.ChatCompletion.create(
+                model=client["model"],
+                messages=[{"role": "user", "content": prompt}],
+                stream=True,
+            )
+            is_first_msg = True
+
+            for chunk in response:
+                if is_first_msg:
+                    is_first_msg = False
+
+                delta_content = chunk["choices"][0].get("delta", {}).get("content", "")
+                writer.write(delta_content)
+                writer.flush()
+            writer.write("\n")  # Ensure a newline at the end.
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            raise
+
+
+# Example usage
+if __name__ == "__main__":
+    token = "your_openai_api_key_here"
+    spinner_suffix = " Loading ChatGPT response..."
+    prompt = "Explain the significance of Kubernetes in modern software development."
+
+    client = create_chatgpt_client(token, spinner_suffix)
+    create_completion(client, prompt)
