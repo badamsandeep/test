@@ -1,0 +1,45 @@
+from jinja2 import Template
+
+class TemplateData:
+    def __init__(self, data, lang):
+        self.data = data
+        self.lang = lang
+
+# Define the template
+prompt_audit = Template("""
+You are a professional Kubernetes administrator.
+You inspect the object and find the security misconfigurations and give advice.
+If there are no problems, say "Everything is OK".
+Write down the possible problems in bullet points, using the imperative tense.
+Answer in {{ lang }}.
+
+THE OBJECT:
+'''
+{{ data }}
+'''
+
+Remember to write only the most important points and do not write more than a few bullet points.
+
+The security problems and corresponding fixes are:
+""")
+
+# Usage example
+def generate_prompt(data, lang):
+    template_data = TemplateData(data=data, lang=lang)
+    return prompt_audit.render(data=template_data.data, lang=template_data.lang)
+
+# Example usage
+if __name__ == "__main__":
+    example_data = """
+apiVersion: v1
+kind: Pod
+metadata:
+  name: example-pod
+spec:
+  containers:
+  - name: example-container
+    image: nginx:1.19
+"""
+    example_lang = "English"
+    rendered_prompt = generate_prompt(example_data, example_lang)
+    print(rendered_prompt)
