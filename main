@@ -1,0 +1,69 @@
+import os
+import sys
+import argparse
+from pathlib import Path
+
+# Placeholder imports for audit and diagnose commands
+# Replace these with the actual implementations of the commands
+from audit import audit_command
+from diagnose import diagnose_command
+
+
+def get_command_name():
+    """
+    Determine the command name based on the script's filename.
+    If the script name starts with "kubectl-", it adjusts accordingly.
+    """
+    script_name = Path(sys.argv[0]).name
+    if script_name.startswith("kubectl-"):
+        return "kubectl kopilot"  # Using Unicode \u2002 for space
+    return "kopilot"
+
+
+def main():
+    # Simulate cmd.Options with a dictionary
+    options = {
+        "env_kopilot_token": os.getenv("KOPILOT_TOKEN"),
+        "env_kopilot_lang": os.getenv("KOPILOT_LANG"),
+    }
+
+    if not options["env_kopilot_token"] or not options["env_kopilot_lang"]:
+        print(
+            f"Error: You need to set TWO environment variables to run Kopilot.\n"
+            f"Set KOPILOT_TOKEN to specify your token.\n"
+            f"Set KOPILOT_LANG to specify the language (e.g., Chinese, French, Spanish, etc.).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Create the root parser
+    parser = argparse.ArgumentParser(
+        prog=get_command_name(),
+        description=(
+            "You need to set TWO environment variables to run Kopilot.\n"
+            "Set KOPILOT_TOKEN to specify your token.\n"
+            "Set KOPILOT_LANG to specify the language (e.g., Chinese, French, Spanish, etc.)."
+        ),
+    )
+
+    # Add subcommands
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+    audit_parser = subparsers.add_parser("audit", help="Audit a Kubernetes resource")
+    diagnose_parser = subparsers.add_parser("diagnose", help="Diagnose a Kubernetes resource")
+
+    # Link subcommands to their respective functions
+    audit_parser.set_defaults(func=audit_command, options=options)
+    diagnose_parser.set_defaults(func=diagnose_command, options=options)
+
+    # Parse arguments
+    args = parser.parse_args()
+
+    # Execute the chosen subcommand
+    if hasattr(args, "func"):
+        args.func(args)
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()
