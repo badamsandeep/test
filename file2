@@ -1,0 +1,119 @@
+import os
+import yaml
+import requests
+import matplotlib.pyplot as plt
+import networkx as nx
+from kubernetes import client, config
+from kubernetes.dynamic import DynamicClient
+
+
+def load_kube_config(kubeconfig_path):
+    """Load Kubernetes configuration."""
+    if not os.path.exists(kubeconfig_path):
+        raise FileNotFoundError(f"Kubeconfig not found: {kubeconfig_path}")
+    config.load_kube_config(config_file=kubeconfig_path)
+    return DynamicClient(client.ApiClient())
+
+
+def get_resource_services(dyn_client, resource_type, resource_name, namespace):
+    """Get upstream and downstream services for a Kubernetes resource."""
+    try:
+        resource = dyn_client.resources.get(kind=resource_type)
+        obj = resource.get(name=resource_name, namespace=namespace).to_dict()
+        
+        # Fetch services
+        v1 = client.CoreV1Api()
+        services = v1.list_namespaced_service(namespace).items
+        upstream = []
+        downstream = []
+
+        for service in services:
+            service_name = service.metadata.name
+            service_selector = service.spec.selector
+
+            if not service_selector:
+                continue
+
+            # Check if the resource labels match the service selector
+            labels = obj.get("metadata", {}).get("labels", {})
+            if all(labels.get(k) == v for k, v in service_selector.items()):
+                upstream.append(service_name)
+
+            # Check downstream (services that use this resource as an endpoint)
+            if resource_type.lower() == "pod":
+                pod_ip = obj.get("status", {}).get("podIP")
+                if pod_ip in [ep.subsets[0].addresses[0].ip for ep in v1.list_endpoints_for_all_namespaces().items if ep.subsets]:
+                    downstream.append(service_name)
+
+        return upstream, downstream
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch resource services: {e}")
+
+
+def perform_health_checks(services, namespace):
+    """Perform health and connectivity checks for services."""
+    v1 = client.CoreV1Api()
+    health_results = {}
+
+    for service in services:
+        try:
+            service_obj = v1.read_namespaced_service(service, namespace)
+            service_url = f"http://{service_obj.spec.cluster_ip}:{service_obj.spec.ports[0].port}"
+
+            # Check connectivity
+            response = requests.get(service_url, timeout=5)
+            health_results[service] = "Healthy" if response.status_code == 200 else "Unhealthy"
+        except Exception:
+            health_results[service] = "Unreachable"
+
+    return health_results
+
+
+def draw_mind_map(resource_name, upstream, downstream, health_upstream, health_downstream):
+    """Draw a mind map diagram showcasing the flow and health checks."""
+    G = nx.DiGraph()
+
+    # Add nodes and edges
+    G.add_node(resource_name, color="green")
+    for service in upstream:
+        G.add_node(service, color="red" if health_upstream[service] != "Healthy" else "green")
+        G.add_edge(service, resource_name)
+
+    for service in downstream:
+        G.add_node(service, color="red" if health_downstream[service] != "Healthy" else "green")
+        G.add_edge(resource_name, service)
+
+    # Set node colors
+    node_colors = [G.nodes[node]["color"] for node in G.nodes]
+
+    # Draw the graph
+    pos = nx.spring_layout(G)
+    nx.draw(G, pos, with_labels=True, node_color=node_colors, node_size=2000, font_size=10, font_weight="bold")
+    plt.title("Kubernetes Resource Flow")
+    plt.show()
+
+
+def main():
+    kubeconfig = input("Enter path to kubeconfig: ").strip()
+    resource_type = input("Enter Kubernetes resource type (e.g., Pod, Deployment): ").strip()
+    resource_name = input("Enter resource name: ").strip()
+    namespace = input("Enter namespace: ").strip()
+
+    # Load Kubernetes configuration
+    dyn_client = load_kube_config(kubeconfig)
+
+    # Get upstream and downstream services
+    upstream_services, downstream_services = get_resource_services(
+        dyn_client, resource_type, resource_name, namespace
+    )
+
+    # Perform health and connectivity checks
+    health_upstream = perform_health_checks(upstream_services, namespace)
+    health_downstream = perform_health_checks(downstream_services, namespace)
+
+    # Draw the mind map
+    draw_mind_map(resource_name, upstream_services, downstream_services, health_upstream, health_downstream)
+
+
+if __name__ == "__main__":
+    main()
