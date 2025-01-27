@@ -1,0 +1,136 @@
+import os
+import time
+import socket
+import yaml
+import networkx as nx
+import matplotlib.pyplot as plt
+from kubernetes import client, config
+from kubernetes.dynamic import DynamicClient
+from subprocess import Popen, PIPE
+
+
+def load_kube_config(kubeconfig_path):
+    """Load Kubernetes configuration."""
+    if not os.path.exists(kubeconfig_path):
+        raise FileNotFoundError(f"Kubeconfig not found: {kubeconfig_path}")
+    config.load_kube_config(config_file=kubeconfig_path)
+    return DynamicClient(client.ApiClient())
+
+
+def fetch_service(dyn_client, namespace, service_name):
+    """Fetch the Kubernetes Service."""
+    service = dyn_client.resources.get(api_version="v1", kind="Service")
+    return service.get(name=service_name, namespace=namespace).to_dict()
+
+
+def fetch_pods(dyn_client, namespace, label_selector):
+    """Fetch Pods matching a label selector."""
+    pods = dyn_client.resources.get(api_version="v1", kind="Pod")
+    return pods.get(namespace=namespace, label_selector=label_selector).to_dict()["items"]
+
+
+def get_connectivity_status(host, port, timeout=3):
+    """Check connectivity to a host and port."""
+    try:
+        with socket.create_connection((host, port), timeout):
+            return True
+    except socket.error:
+        return False
+
+
+def netstat_check(duration=30):
+    """Run netstat to check active connections for a specific duration."""
+    connections = {}
+    start_time = time.time()
+    while time.time() - start_time < duration:
+        process = Popen(["netstat", "-an"], stdout=PIPE)
+        output, _ = process.communicate()
+        for line in output.decode().splitlines():
+            if "ESTABLISHED" in line:
+                parts = line.split()
+                local_address, remote_address = parts[3], parts[4]
+                connections[remote_address] = connections.get(remote_address, 0) + 1
+        time.sleep(5)
+    return connections
+
+
+def draw_mind_map(upstream_services, downstream_services, connectivity_status, netstat_connections):
+    """Draw a visual mind map showing the flow, health, and connectivity."""
+    G = nx.DiGraph()
+
+    # Add nodes for the main service, upstream, and downstream
+    G.add_node("Main Service", color="green")
+    for svc in upstream_services:
+        G.add_node(svc, color="blue")
+        G.add_edge(svc, "Main Service", label="Upstream")
+    for svc in downstream_services:
+        G.add_node(svc, color="red")
+        G.add_edge("Main Service", svc, label="Downstream")
+
+    # Add nodes for netstat connections
+    for conn in netstat_connections:
+        G.add_node(conn, color="orange")
+        G.add_edge("Main Service", conn, label="Connection")
+
+    # Draw the graph
+    pos = nx.spring_layout(G)
+    colors = [data["color"] for _, data in G.nodes(data=True)]
+    nx.draw(G, pos, with_labels=True, node_color=colors, node_size=3000, font_size=10)
+    nx.draw_networkx_edge_labels(G, pos, edge_labels={(u, v): d["label"] for u, v, d in G.edges(data=True)})
+    plt.title("Service Connectivity and Health Map")
+    plt.show()
+
+
+def main():
+    kubeconfig = input("Enter path to kubeconfig: ").strip()
+    namespace = input("Enter namespace: ").strip()
+    resource_name = input("Enter service name: ").strip()
+
+    # Load Kubernetes configuration
+    dyn_client = load_kube_config(kubeconfig)
+
+    # Fetch the main service
+    service = fetch_service(dyn_client, namespace, resource_name)
+
+    # Find upstream services
+    selectors = service["spec"].get("selector", {})
+    label_selector = ",".join([f"{k}={v}" for k, v in selectors.items()])
+    pods = fetch_pods(dyn_client, namespace, label_selector)
+    upstream_services = [pod["metadata"]["name"] for pod in pods]
+
+    # Find downstream services (via endpoints)
+    endpoints = dyn_client.resources.get(api_version="v1", kind="Endpoints")
+    downstream_services = []
+    try:
+        endpoint_list = endpoints.get(namespace=namespace).to_dict()["items"]
+        for endpoint in endpoint_list:
+            if endpoint["metadata"]["name"] == resource_name:
+                for subset in endpoint.get("subsets", []):
+                    for address in subset.get("addresses", []):
+                        downstream_services.append(address["ip"])
+    except Exception as e:
+        print(f"Error fetching downstream services: {e}")
+
+    # Perform connectivity checks
+    connectivity_status = {
+        svc: get_connectivity_status(svc, 80) for svc in upstream_services + downstream_services
+    }
+
+    # Run netstat check
+    netstat_connections = netstat_check()
+
+    # Draw the mind map
+    draw_mind_map(upstream_services, downstream_services, connectivity_status, netstat_connections)
+
+    # Print connectivity and health checks
+    print("\nConnectivity Status:")
+    for target, status in connectivity_status.items():
+        print(f"{target}: {'Connected' if status else 'Not Connected'}")
+
+    print("\nNetstat Connections:")
+    for conn, count in netstat_connections.items():
+        print(f"{conn}: {count} connections")
+
+
+if __name__ == "__main__":
+    main()
