@@ -1,36 +1,31 @@
 import requests
 
-# Rancher API details
+# Rancher details
 RANCHER_URL = "https://rancher.example.com"  # Replace with your Rancher URL
-API_TOKEN = "your_api_token"  # Replace with your Rancher API token
-CLUSTER_ID = "c-abcde"  # Replace with your Rancher cluster ID
-KUBECONFIG_PATH = "kubeconfig.yaml"  # Where to save the downloaded Kubeconfig file
+API_TOKEN = "Bearer your-api-token"  # Replace with your API token
 
-# API Endpoint for downloading Kubeconfig
-KUBECONFIG_URL = f"{RANCHER_URL}/v3/clusters/{CLUSTER_ID}?action=generateKubeconfig"
-
-# Headers for authentication
+# API Headers
 HEADERS = {
-    "Authorization": f"Bearer {API_TOKEN}",
-    "Content-Type": "application/json"
+    "Authorization": API_TOKEN,
+    "Accept": "application/json"
 }
 
-def download_kubeconfig():
-    """Fetches the Kubeconfig file from Rancher and saves it locally."""
-    try:
-        response = requests.post(KUBECONFIG_URL, headers=HEADERS, timeout=10)
-        response.raise_for_status()  # Raise an error for failed requests
-        
-        kubeconfig_content = response.json().get("config")
-        if kubeconfig_content:
-            with open(KUBECONFIG_PATH, "w") as f:
-                f.write(kubeconfig_content)
-            print(f"Kubeconfig saved to {KUBECONFIG_PATH}")
-        else:
-            print("Failed to retrieve kubeconfig. Check API response.")
-    
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching kubeconfig: {e}")
+def get_clusters():
+    """Fetch and list all clusters from Rancher."""
+    url = f"{RANCHER_URL}/v3/clusters"
+    response = requests.get(url, headers=HEADERS)
+
+    if response.status_code == 200:
+        clusters = response.json().get("data", [])
+        if not clusters:
+            print("No clusters found.")
+            return
+
+        print("🔹 List of Clusters:")
+        for cluster in clusters:
+            print(f"- Name: {cluster['name']}, ID: {cluster['id']}, State: {cluster['state']}")
+    else:
+        print(f"❌ Failed to fetch clusters: {response.text}")
 
 if __name__ == "__main__":
-    download_kubeconfig()
+    get_clusters()
