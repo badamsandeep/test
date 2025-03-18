@@ -49,3 +49,24 @@ func replaceVariables(data map[string]map[string]interface{}, config map[string]
 		}
 	}
 }
+
+func replaceVariables(data map[string]map[string]interface{}, config Config) {
+	re := regexp.MustCompile(`{{(.*?)}}`) // Matches {{variable}}
+
+	for _, innerMap := range data {
+		for key, value := range innerMap {
+			if strValue, ok := value.(string); ok {
+				innerMap[key] = re.ReplaceAllStringFunc(strValue, func(match string) string {
+					key := strings.Trim(match, "{}")
+					switch key {
+					case "Hostname":
+						return config.Hostname
+					default:
+						return match
+					}
+				})
+			}
+		}
+	}
+}
+
