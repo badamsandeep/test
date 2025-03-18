@@ -30,3 +30,22 @@ func replaceVariables(data map[string]map[string]string, config map[string]strin
 		}
 	}
 }
+
+func replaceVariables(data map[string]map[string]interface{}, config map[string]string) {
+	re := regexp.MustCompile(`{{(.*?)}}`) // Matches {{variable}}
+
+	for _, innerMap := range data {
+		for key, value := range innerMap {
+			// Only replace strings, leave booleans and numbers unchanged
+			if strValue, ok := value.(string); ok {
+				innerMap[key] = re.ReplaceAllStringFunc(strValue, func(match string) string {
+					key := strings.Trim(match, "{}")
+					if val, exists := config[key]; exists {
+						return val
+					}
+					return match
+				})
+			}
+		}
+	}
+}
