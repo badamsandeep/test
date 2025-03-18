@@ -13,3 +13,20 @@
 
 	return replacedData
 }
+
+
+func replaceVariables(data map[string]map[string]string, config map[string]string) {
+	re := regexp.MustCompile(`{{(.*?)}}`) // Matches {{variable}}
+
+	for _, innerMap := range data {
+		for key, value := range innerMap {
+			innerMap[key] = re.ReplaceAllStringFunc(value, func(match string) string {
+				key := strings.Trim(match, "{}")
+				if val, exists := config[key]; exists {
+					return val
+				}
+				return match
+			})
+		}
+	}
+}
