@@ -1,31 +1,15 @@
-import requests
+ func replaceVariables(jsonData string, config map[string]string) string {
+	// Regular expression to find placeholders (e.g., "{{variable}}")
+	re := regexp.MustCompile(`{{(.*?)}}`)
 
-# Rancher details
-RANCHER_URL = "https://rancher.example.com"  # Replace with your Rancher URL
-API_TOKEN = "Bearer your-api-token"  # Replace with your API token
+	// Replace each placeholder with the corresponding value from config
+	replacedData := re.ReplaceAllStringFunc(jsonData, func(match string) string {
+		key := strings.Trim(match, "{}") // Extract key name from {{key}}
+		if val, exists := config[key]; exists {
+			return val
+		}
+		return match // Keep the original if not found in config
+	})
 
-# API Headers
-HEADERS = {
-    "Authorization": API_TOKEN,
-    "Accept": "application/json"
+	return replacedData
 }
-
-def get_clusters():
-    """Fetch and list all clusters from Rancher."""
-    url = f"{RANCHER_URL}/v3/clusters"
-    response = requests.get(url, headers=HEADERS)
-
-    if response.status_code == 200:
-        clusters = response.json().get("data", [])
-        if not clusters:
-            print("No clusters found.")
-            return
-
-        print("🔹 List of Clusters:")
-        for cluster in clusters:
-            print(f"- Name: {cluster['name']}, ID: {cluster['id']}, State: {cluster['state']}")
-    else:
-        print(f"❌ Failed to fetch clusters: {response.text}")
-
-if __name__ == "__main__":
-    get_clusters()
